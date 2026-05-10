@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flutter analyze *)",
+      "Bash(flutter pub *)",
+      "Bash(dart run *)",
+      "Bash(Get-ChildItem -Path \"E:\\\\Turf Zone\\\\1.4.0\\\\turfzone\" -Recurse -File -Name)",
+      "Bash(Select-Object -First 50)",
+      "PowerShell(Get-ChildItem -Path \"E:\\\\Turf Zone\\\\1.4.0\\\\turfzone\\\\lib\" -Directory | ForEach-Object { Write-Output \"Directory: $\\($_.Name\\)\" })",
+      "PowerShell(Get-ChildItem -Path \"E:\\\\Turf Zone\\\\1.4.0\\\\turfzone\\\\lib\\\\widgets\" -File -Recurse | ForEach-Object { $_.FullName })",
+      "PowerShell(Get-ChildItem -Path \"E:\\\\Turf Zone\\\\1.4.0\\\\turfzone\\\\assets\" -Force | ForEach-Object { $_.FullName })"
+    ]
+  }
+}
