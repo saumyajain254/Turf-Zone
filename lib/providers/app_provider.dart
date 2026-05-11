@@ -11,6 +11,8 @@ class AppProvider extends ChangeNotifier {
   bool _locationAccess = true;
   bool _emailNotifications = false;
   String _cityName = 'Detecting...';
+  double? _latitude;
+  double? _longitude;
 
   // User profile (password kept in memory only — never persisted)
   String _userName = 'Guest User';
@@ -27,6 +29,8 @@ class AppProvider extends ChangeNotifier {
   bool get locationAccess => _locationAccess;
   bool get emailNotifications => _emailNotifications;
   String get cityName => _cityName;
+  double? get latitude => _latitude;
+  double? get longitude => _longitude;
   String get userName => _userName;
   String get userEmail => _userEmail;
   String get userHandle => _userHandle;
@@ -98,12 +102,16 @@ class AppProvider extends ChangeNotifier {
       final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(accuracy: LocationAccuracy.low),
       );
+      _latitude = position.latitude;
+      _longitude = position.longitude;
+      debugPrint('[Location] Coordinates → lat: $_latitude, lng: $_longitude');
       final placemarks = await placemarkFromCoordinates(position.latitude, position.longitude);
       if (placemarks.isNotEmpty) {
         final place = placemarks.first;
         final city = place.locality ?? place.subAdministrativeArea ?? '';
         final state = place.administrativeArea ?? '';
         _cityName = city.isNotEmpty ? (state.isNotEmpty ? '$city, $state' : city) : 'Unknown Location';
+        debugPrint('[Location] Resolved → $_cityName (lat: $_latitude, lng: $_longitude)');
         notifyListeners();
       }
     } catch (_) {

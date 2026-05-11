@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_theme.dart';
@@ -7,60 +8,21 @@ import '../providers/app_provider.dart';
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
-  void _handlePersonalDetails(BuildContext context) {
+  Future<void> _handlePersonalDetails(BuildContext context) async {
     final p = Provider.of<AppProvider>(context, listen: false);
-    final nameCtrl = TextEditingController(text: p.userName);
-    final emailCtrl = TextEditingController(text: p.userEmail);
-    final phoneCtrl = TextEditingController(text: p.userPhone);
-    final addrCtrl = TextEditingController(text: p.userAddress);
-    showModalBottomSheet(
+    final result = await showModalBottomSheet<({String name, String email, String phone, String addr})>(
       context: context,
       isScrollControlled: true,
       backgroundColor: AppAdaptive.cardBg(context),
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom, left: 20, right: 20, top: 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Personal Details', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: AppAdaptive.isDark(context) ? Colors.white : Colors.black87)),
-            const SizedBox(height: 20),
-            TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Full Name', prefixIcon: Icon(Icons.person_outline))),
-            const SizedBox(height: 12),
-            TextField(controller: emailCtrl, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: 'Email Address', prefixIcon: Icon(Icons.mail_outline))),
-            const SizedBox(height: 12),
-            TextField(controller: phoneCtrl, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Phone Number', prefixIcon: Icon(Icons.phone_outlined))),
-            const SizedBox(height: 12),
-            TextField(controller: addrCtrl, decoration: const InputDecoration(labelText: 'Address', prefixIcon: Icon(Icons.home_outlined))),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () async {
-                  final name = nameCtrl.text.trim();
-                  final email = emailCtrl.text.trim();
-                  final phone = phoneCtrl.text.trim();
-                  final addr = addrCtrl.text.trim();
-                  await p.updateProfile(name: name, email: email, handle: p.userHandle, phone: phone, address: addr);
-                  if (context.mounted) {
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Details saved!')));
-                  }
-                },
-                child: const Text('Save Changes'),
-              ),
-            ),
-            const SizedBox(height: 20),
-          ],
-        ),
-      ),
-    ).then((_) {
-      nameCtrl.dispose();
-      emailCtrl.dispose();
-      phoneCtrl.dispose();
-      addrCtrl.dispose();
-    });
+      builder: (_) => _PersonalDetailsSheet(provider: p),
+    );
+    if (result != null && context.mounted) {
+      await p.updateProfile(name: result.name, email: result.email, handle: p.userHandle, phone: result.phone, address: result.addr);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Details saved!')));
+      }
+    }
   }
 
   void _handleChangePassword(BuildContext context) {
@@ -413,5 +375,164 @@ class SettingsScreen extends StatelessWidget {
       ),
       if (showDivider) Divider(color: AppAdaptive.divider(context), height: 1, indent: 60),
     ]);
+  }
+}
+
+class _PersonalDetailsSheet extends StatefulWidget {
+  final AppProvider provider;
+  const _PersonalDetailsSheet({required this.provider});
+
+  @override
+  State<_PersonalDetailsSheet> createState() => _PersonalDetailsSheetState();
+}
+
+class _PersonalDetailsSheetState extends State<_PersonalDetailsSheet> {
+  late final TextEditingController _nameCtrl;
+  late final TextEditingController _emailCtrl;
+  late final TextEditingController _phoneCtrl;
+  late final TextEditingController _addrCtrl;
+  late final String _originalPhone;
+
+  @override
+  void initState() {
+    super.initState();
+    final p = widget.provider;
+    _nameCtrl = TextEditingController(text: p.userName);
+    _emailCtrl = TextEditingController(text: p.userEmail);
+    _phoneCtrl = TextEditingController(text: p.userPhone);
+    _addrCtrl = TextEditingController(text: p.userAddress);
+    _originalPhone = p.userPhone;
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _emailCtrl.dispose();
+    _phoneCtrl.dispose();
+    _addrCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final name = _nameCtrl.text.trim();
+    final email = _emailCtrl.text.trim();
+    final phone = _phoneCtrl.text.trim();
+    final addr = _addrCtrl.text.trim();
+    final phoneChanged = phone != _originalPhone && phone.isNotEmpty;
+
+    if (phoneChanged) {
+      // Step 1: notify OTP sent
+      await showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: AppAdaptive.cardBg(context),
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle, color: AppColors.primary, size: 28),
+              const SizedBox(width: 16),
+              const Expanded(child: Text('An OTP has been sent to the phone number you entered')),
+            ],
+          ),
+          actions: [
+            ElevatedButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+          ],
+        ),
+      );
+      if (!mounted) return;
+
+      // Step 2: OTP entry
+      final otpCtrl = TextEditingController();
+      String otpError = '';
+      final verified = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx2, setS) => AlertDialog(
+            backgroundColor: AppAdaptive.cardBg(context),
+            title: Text('Enter OTP', style: TextStyle(color: AppAdaptive.isDark(context) ? Colors.white : Colors.black87, fontWeight: FontWeight.bold)),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: otpCtrl,
+                  keyboardType: TextInputType.number,
+                  maxLength: 4,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  decoration: InputDecoration(
+                    hintText: '••••',
+                    counterText: '',
+                    hintStyle: TextStyle(color: AppAdaptive.textHint(context), letterSpacing: 4),
+                  ),
+                ),
+                if (otpError.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(otpError, style: const TextStyle(color: Colors.red, fontSize: 12)),
+                ],
+              ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+              ElevatedButton(
+                onPressed: () {
+                  if (otpCtrl.text == '3456') {
+                    Navigator.pop(ctx, true);
+                  } else {
+                    setS(() => otpError = 'Invalid OTP. Please try again.');
+                  }
+                },
+                child: const Text('Verify'),
+              ),
+            ],
+          ),
+        ),
+      );
+      // Defer disposal so the dialog's exit animation finishes before the
+      // controller is released — disposing immediately crashes the animation.
+      WidgetsBinding.instance.addPostFrameCallback((_) => otpCtrl.dispose());
+
+      if (!mounted) return;
+      if (verified != true) return;
+    }
+
+    if (!mounted) return;
+    // Pop with the collected data. The caller (_handlePersonalDetails) calls
+    // updateProfile only after this future resolves, so notifyListeners() fires
+    // after the sheet is fully out of the provider's listener list.
+    Navigator.pop(context, (name: name, email: email, phone: phone, addr: addr));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 20, right: 20, top: 20),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Personal Details', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: AppAdaptive.isDark(context) ? Colors.white : Colors.black87)),
+            const SizedBox(height: 20),
+            TextField(controller: _nameCtrl, decoration: const InputDecoration(labelText: 'Full Name', prefixIcon: Icon(Icons.person_outline))),
+            const SizedBox(height: 12),
+            TextField(controller: _emailCtrl, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: 'Email Address', prefixIcon: Icon(Icons.mail_outline))),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _phoneCtrl,
+              keyboardType: TextInputType.phone,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: const InputDecoration(labelText: 'Phone Number', prefixIcon: Icon(Icons.phone_outlined)),
+            ),
+            const SizedBox(height: 12),
+            TextField(controller: _addrCtrl, decoration: const InputDecoration(labelText: 'Address', prefixIcon: Icon(Icons.home_outlined))),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(onPressed: _save, child: const Text('Save Changes')),
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
   }
 }

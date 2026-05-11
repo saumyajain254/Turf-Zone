@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_theme.dart';
 import '../providers/app_provider.dart';
+
+const _kDefaultOtp = '3456';
 
 bool _isValidEmail(String email) =>
     RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$').hasMatch(email);
@@ -25,36 +28,76 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _emailCtrl = TextEditingController();
-  final _passwordCtrl = TextEditingController();
-  bool _obscureText = true;
+  final _phoneCtrl = TextEditingController();
+  final _otpCtrl = TextEditingController();
+  String _countryCode = '+91';
+  bool _otpSent = false;
 
   @override
   void dispose() {
-    _emailCtrl.dispose();
-    _passwordCtrl.dispose();
+    _phoneCtrl.dispose();
+    _otpCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _handleSignIn() async {
-    final email = _emailCtrl.text.trim();
-    final password = _passwordCtrl.text;
-    if (email.isEmpty || password.isEmpty) {
-      _snack('Please enter your email and password');
+  Future<void> _sendOtp() async {
+    final phone = _phoneCtrl.text.trim();
+    if (phone.isEmpty) {
+      _snack('Please enter your phone number');
       return;
     }
-    if (!_isValidEmail(email)) {
-      _snack('Please enter a valid email address');
+    if (!RegExp(r'^\d+$').hasMatch(phone) ||
+        (_countryCode == '+91' && phone.length != 10)) {
+      _snack('Enter the correct number');
       return;
     }
-    if (password.length < 6) {
-      _snack('Password must be at least 6 characters');
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppAdaptive.cardBg(context),
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle, color: AppColors.primary, size: 28),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Text(
+                'An OTP has been sent to the phone number you entered',
+                style: TextStyle(color: AppAdaptive.isDark(context) ? Colors.white : Colors.black87),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    setState(() => _otpSent = true);
+  }
+
+  Future<void> _verifyOtp() async {
+    final otp = _otpCtrl.text.trim();
+    if (otp.isEmpty) {
+      _snack('Please enter the OTP');
+      return;
+    }
+    if (otp.length != 4) {
+      _snack('OTP must be 4 digits');
+      return;
+    }
+    if (otp != _kDefaultOtp) {
+      _snack('Invalid OTP. Please try again.');
       return;
     }
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('isLoggedIn', true);
     if (!mounted) return;
-    await Provider.of<AppProvider>(context, listen: false).loginWithCredentials(email);
+    await Provider.of<AppProvider>(context, listen: false)
+        .loginWithCredentials('$_countryCode${_phoneCtrl.text.trim()}');
     if (!mounted) return;
     Navigator.pushReplacementNamed(context, '/home');
   }
@@ -63,43 +106,51 @@ class _LoginScreenState extends State<LoginScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  void _showForgotPassword() {
-    final ctrl = TextEditingController();
+  void _showCountryCodePicker() {
+    const codes = [
+      ('+91', 'India'),
+      ('+1', 'USA / Canada'),
+      ('+44', 'UK'),
+      ('+61', 'Australia'),
+      ('+971', 'UAE'),
+      ('+65', 'Singapore'),
+      ('+60', 'Malaysia'),
+      ('+49', 'Germany'),
+      ('+33', 'France'),
+      ('+81', 'Japan'),
+    ];
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppAdaptive.cardBg(context),
-        title: Text('Reset Password', style: TextStyle(color: AppAdaptive.isDark(context) ? Colors.white : Colors.black87)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('Enter your email to receive a reset link.', style: TextStyle(color: AppAdaptive.textHint(context), fontSize: 13)),
-            const SizedBox(height: 16),
-            TextField(
-              controller: ctrl,
-              keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(hintText: 'you@example.com'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () {
-              final email = ctrl.text.trim();
-              if (email.isEmpty || !_isValidEmail(email)) {
-                Navigator.pop(ctx);
-                _snack('Please enter a valid email address');
-                return;
-              }
-              Navigator.pop(ctx);
-              _snack('Reset link sent to $email');
-            },
-            child: const Text('Send Link'),
+        title: Text(
+          'Select Country Code',
+          style: TextStyle(
+            color: AppAdaptive.isDark(context) ? Colors.white : Colors.black87,
+            fontWeight: FontWeight.bold,
           ),
-        ],
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView(
+            shrinkWrap: true,
+            children: codes.map((entry) {
+              final code = entry.$1;
+              final name = entry.$2;
+              return ListTile(
+                leading: Text(code, style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 16)),
+                title: Text(name, style: TextStyle(color: AppAdaptive.isDark(context) ? Colors.white : Colors.black87)),
+                trailing: _countryCode == code ? const Icon(Icons.check, color: AppColors.primary) : null,
+                onTap: () {
+                  setState(() => _countryCode = code);
+                  Navigator.pop(ctx);
+                },
+              );
+            }).toList(),
+          ),
+        ),
       ),
-    ).then((_) => ctrl.dispose());
+    );
   }
 
   Future<void> _showDemoLogin(String provider) async {
@@ -274,42 +325,71 @@ class _LoginScreenState extends State<LoginScreen> {
                 Text('WELCOME BACK', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.primary, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
                 Text('SIGN IN', style: Theme.of(context).textTheme.displayMedium?.copyWith(fontWeight: FontWeight.w900, letterSpacing: 1.5)),
                 const SizedBox(height: 40),
-                Text('EMAIL ADDRESS', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppAdaptive.textSecondary(context))),
+                Text('PHONE NUMBER', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppAdaptive.textSecondary(context))),
                 const SizedBox(height: 8),
-                TextField(
-                  controller: _emailCtrl,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(hintText: 'you@example.com'),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    GestureDetector(
+                      onTap: _showCountryCodePicker,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: AppAdaptive.outlinedBorder(context)),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(_countryCode, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                            const Icon(Icons.arrow_drop_down, size: 20),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: TextField(
+                        controller: _phoneCtrl,
+                        keyboardType: TextInputType.phone,
+                        maxLength: _countryCode == '+91' ? 10 : 15,
+                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                        decoration: const InputDecoration(
+                          hintText: 'Enter phone number',
+                          counterText: '',
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 24),
-                Text('PASSWORD', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppAdaptive.textSecondary(context))),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _passwordCtrl,
-                  obscureText: _obscureText,
-                  decoration: InputDecoration(
-                    hintText: '••••••••',
-                    suffixIcon: IconButton(
-                      icon: Icon(_obscureText ? Icons.visibility_off_outlined : Icons.visibility_outlined, color: AppAdaptive.textHint(context)),
-                      onPressed: () => setState(() => _obscureText = !_obscureText),
+                if (_otpSent) ...[
+                  const SizedBox(height: 24),
+                  Text('OTP', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppAdaptive.textSecondary(context))),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _otpCtrl,
+                    keyboardType: TextInputType.number,
+                    maxLength: 4,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: InputDecoration(
+                      hintText: '••••',
+                      counterText: '',
+                      hintStyle: TextStyle(color: AppAdaptive.textHint(context), letterSpacing: 4),
                     ),
                   ),
-                ),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: _showForgotPassword,
-                    child: const Text('Forgot password?', style: TextStyle(color: AppColors.primary, fontSize: 12)),
-                  ),
-                ),
-                const SizedBox(height: 20),
+                ],
+                const SizedBox(height: 28),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: _handleSignIn,
-                    child: const Row(
+                    onPressed: _otpSent ? _verifyOtp : _sendOtp,
+                    child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
-                      children: [Text('Sign In'), SizedBox(width: 8), Icon(Icons.arrow_forward, size: 18)],
+                      children: [
+                        Text(_otpSent ? 'Verify & Sign In' : 'Send OTP'),
+                        const SizedBox(width: 8),
+                        const Icon(Icons.arrow_forward, size: 18),
+                      ],
                     ),
                   ),
                 ),
